@@ -34,6 +34,9 @@ npm run dev                   # http://localhost:3000
 | `npm run typecheck` | TypeScript, no emit             |
 | `npm test`          | Run unit tests once (Vitest)    |
 | `npm run test:watch`| Run unit tests in watch mode    |
+| `npm run db:push`   | Apply pending migrations to the linked Supabase project |
+| `npm run db:types`  | Regenerate `src/lib/db/database.types.ts` from the live schema |
+| `npm run db:smoke`  | Create → read → delete a row against the real database |
 
 ## Environment variables
 
@@ -64,7 +67,39 @@ src/
 
 ## Supabase setup
 
-_Coming in PR 2._
+1. **Create a project** at [supabase.com](https://supabase.com/dashboard). Under *Security*: enable the **Data API**, leave **"Automatically expose new tables"** off, and enable **automatic RLS**.
+2. **Fill in `.env.local`** (copy from `.env.example`):
+   - `NEXT_PUBLIC_SUPABASE_URL` — Project Settings → Data API → Project URL. Use the base URL (`https://<ref>.supabase.co`), **without** `/rest/v1/`.
+   - `SUPABASE_SERVICE_ROLE_KEY` — Project Settings → API Keys → **Secret** key (`sb_secret_…`), or the legacy `service_role` key.
+3. **Link the CLI** (the CLI is a dev dependency, so `npx` uses the pinned version):
+   ```bash
+   npx supabase login
+   npx supabase link --project-ref <ref>   # asks for the database password
+   ```
+4. **Apply the schema and check it:**
+   ```bash
+   npm run db:push
+   npm run db:smoke
+   ```
+
+### Schema
+
+One table, `public.experiences` ([migration](./supabase/migrations)):
+
+| Column           | Type        | Notes                                   |
+| ---------------- | ----------- | --------------------------------------- |
+| `id`             | uuid        | Primary key, internal only              |
+| `slug`           | text        | Unique, 6–16 alphanumerics, public URL  |
+| `type`           | text        | Check-constrained; `valentine` in V1    |
+| `sender_name`    | text        | 1–50 characters                         |
+| `recipient_name` | text        | 1–50 characters                         |
+| `message`        | text, null  | 1–500 characters when present           |
+| `created_at`     | timestamptz |                                         |
+| `updated_at`     | timestamptz | Maintained by trigger                   |
+
+**Access model:** the browser never talks to the database. RLS is on with no policies and `anon`/`authenticated` have no grants, so the public key can't read or write anything. Only server code, using the service role (`select`, `insert`, `delete`), touches the table. The database also enforces the length, type and slug rules itself, independently of app validation.
+
+**Schema changes:** add a migration with `npx supabase migration new <name>`, then `npm run db:push` and `npm run db:types`.
 
 ## Deployment
 
